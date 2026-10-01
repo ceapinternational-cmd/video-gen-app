@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+replicate
+python-dotenv
+pydantic
+aiofiles
