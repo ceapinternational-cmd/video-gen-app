@@ -19,16 +19,21 @@
       <textarea
         id="prompt"
         rows="5"
-        placeholder="Ex : Un chat astronaute flottant dans l'ISS, caméra lente, lumière dorée, style cinématographique..."
+        placeholder="Ex : <Picture 1> marche dans un jardin fleuri, caméra lente..."
       ></textarea>
+
+      <label for="imageInput">📎 Images de référence (max 5, optionnel)</label>
+      <input type="file" id="imageInput" accept="image/*" multiple />
+      <div id="imagePreview" class="image-preview"></div>
+      <p class="hint">Utilise <code>&lt;Picture 1&gt;</code>, <code>&lt;Picture 2&gt;</code>… dans ton prompt pour référencer les images.</p>
 
       <details>
         <summary>Paramètres avancés</summary>
-        <label for="model">Modèle Replicate</label>
-        <input id="model" type="text" placeholder="minimax/video-01" />
+        <label for="model">Modèle Agnes AI</label>
+        <input id="model" type="text" placeholder="agnes-video-2.5-flash" />
 
         <label for="params">Paramètres supplémentaires (JSON)</label>
-        <textarea id="params" rows="3" placeholder='{"duration": 5}'></textarea>
+        <textarea id="params" rows="3" placeholder='{"seconds": "5", "aspect_ratio": "16:9"}'></textarea>
       </details>
 
       <button id="generateBtn">🚀 Générer la vidéo</button>
