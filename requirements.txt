@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
-replicate
+httpx
+python-multipart
 python-dotenv
 pydantic
 aiofiles
