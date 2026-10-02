@@ -60,6 +60,65 @@ textarea:focus, input:focus {
   border-color: #6366f1;
 }
 
+/* NOUVEAU : champ file */
+input[type="file"] {
+  display: block;
+  width: 100%;
+  padding: 0.6rem;
+  background: #0f1117;
+  border: 1px dashed #2a2d34;
+  border-radius: 8px;
+  color: #9aa0a6;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+  cursor: pointer;
+}
+
+input[type="file"]::file-selector-button {
+  background: #6366f1;
+  color: white;
+  border: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  margin-right: 0.75rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+/* NOUVEAU : zone d'aperçu des vignettes */
+.image-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.image-preview img {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #2a2d34;
+}
+
+/* NOUVEAU : texte d'aide */
+.hint {
+  font-size: 0.8rem;
+  color: #9aa0a6;
+  margin-bottom: 1rem;
+  line-height: 1.4;
+}
+
+.hint code {
+  background: #0f1117;
+  border: 1px solid #2a2d34;
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+  font-family: monospace;
+  color: #a78bfa;
+  font-size: 0.8rem;
+}
+
 details {
   margin-bottom: 1rem;
 }
