@@ -25,7 +25,7 @@ STATIC_DIR = BASE_DIR / "static"
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="Generateur de videos IA - Agnes", version="1.1.0")
+app = FastAPI(title="Generateur de videos IA - Agnes", version="1.2.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
@@ -61,7 +61,9 @@ def run_generation(job_id: str) -> None:
         update_job(job_id, status=JobStatus.FAILED, error="AGNES_API_KEY manquant.")
         return
 
-    update_job(job_id, status=JobStatus.RUNNING)
+    update_job(job_id, status=JobStatus.RUNNING, error=None)
+
+    import time
 
     try:
         with httpx.Client() as client:
@@ -85,34 +87,107 @@ def run_generation(job_id: str) -> None:
             else:
                 payload["mode"] = "text"
 
-            response = client.post(
-                f"{AGNES_BASE_URL}/videos",
-                headers=headers,
-                json=payload,
-                timeout=30.0,
-            )
-            response.raise_for_status()
-            data = response.json()
+            max_retries = 8
+            base_delay = 10
+            video_id = None
+            last_error = ""
 
-            video_id = data.get("video_id") or data.get("id")
+            for attempt in range(max_retries):
+                try:
+                    response = client.post(
+                        f"{AGNES_BASE_URL}/videos",
+                        headers=headers,
+                        json=payload,
+                        timeout=30.0,
+                    )
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        video_id = data.get("video_id") or data.get("id")
+                        if video_id:
+                            update_job(job_id, status=JobStatus.RUNNING, error=None)
+                            break
+                        else:
+                            update_job(
+                                job_id,
+                                status=JobStatus.FAILED,
+                                error=f"Pas de video_id : {data}",
+                            )
+                            return
+
+                    if response.status_code == 503:
+                        try:
+                            err_data = response.json()
+                            code = err_data.get("code", "")
+                            if code == "video_queue_full":
+                                wait = base_delay * (attempt + 1)
+                                last_error = "File d'attente Agnes pleine"
+                                update_job(
+                                    job_id,
+                                    status=JobStatus.RUNNING,
+                                    error=f"File d'attente pleine, nouvelle tentative dans {wait}s (essai {attempt+1}/{max_retries})",
+                                )
+                                time.sleep(wait)
+                                continue
+                        except Exception:
+                            pass
+                        wait = base_delay * (attempt + 1)
+                        last_error = "503 Service Unavailable"
+                        update_job(
+                            job_id,
+                            status=JobStatus.RUNNING,
+                            error=f"Serveur Agnes occupe, nouvelle tentative dans {wait}s (essai {attempt+1}/{max_retries})",
+                        )
+                        time.sleep(wait)
+                        continue
+
+                    response.raise_for_status()
+
+                except (httpx.RequestError, httpx.TimeoutException) as e:
+                    last_error = str(e)
+                    if attempt < max_retries - 1:
+                        wait = base_delay * (attempt + 1)
+                        update_job(
+                            job_id,
+                            status=JobStatus.RUNNING,
+                            error=f"Erreur reseau, nouvelle tentative dans {wait}s (essai {attempt+1}/{max_retries})",
+                        )
+                        time.sleep(wait)
+                        continue
+                    else:
+                        raise
+
             if not video_id:
-                update_job(job_id, status=JobStatus.FAILED, error=f"Pas de video_id : {data}")
+                update_job(
+                    job_id,
+                    status=JobStatus.FAILED,
+                    error=f"Impossible de creer la video apres {max_retries} essais. Derniere erreur : {last_error}",
+                )
                 return
 
-            import time
             max_attempts = 150
             for attempt in range(max_attempts):
                 time.sleep(2)
                 status_url = f"https://apihub.agnes-ai.com/agnesapi?video_id={video_id}&model_name={job.model}"
-                status_response = client.get(status_url, headers=headers, timeout=30.0)
-                status_response.raise_for_status()
-                status_data = status_response.json()
+
+                try:
+                    status_response = client.get(status_url, headers=headers, timeout=30.0)
+                    if status_response.status_code != 200:
+                        continue
+                    status_data = status_response.json()
+                except Exception:
+                    continue
 
                 current_status = status_data.get("status")
                 if current_status == "completed":
                     video_url = status_data.get("url")
                     if video_url:
-                        update_job(job_id, status=JobStatus.SUCCEEDED, video_url=video_url)
+                        update_job(
+                            job_id,
+                            status=JobStatus.SUCCEEDED,
+                            video_url=video_url,
+                            error=None,
+                        )
                     else:
                         update_job(job_id, status=JobStatus.FAILED, error="URL video non trouvee.")
                     return
