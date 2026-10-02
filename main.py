@@ -1,10 +1,11 @@
 import os
-import asyncio
-import replicate
+import uuid
+import shutil
+import httpx
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -12,26 +13,23 @@ from dotenv import load_dotenv
 
 from jobs import create_job, get_job, update_job, JobStatus
 
-# ----------------------------
-# Config
-# ----------------------------
 load_dotenv()
 
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "minimax/video-01")
+AGNES_API_KEY = os.getenv("AGNES_API_KEY")
+AGNES_BASE_URL = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "agnes-video-2.5-flash")
+APP_BASE_URL = os.getenv("APP_BASE_URL", "").rstrip("/")
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
+UPLOAD_DIR = BASE_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="Générateur de vidéos IA", version="1.0.0")
-
-# Sert /static/*
+app = FastAPI(title="Generateur de videos IA - Agnes", version="1.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
-# ----------------------------
-# Schémas
-# ----------------------------
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=3, max_length=2000)
     model: Optional[str] = None
@@ -54,69 +52,81 @@ class JobResponse(BaseModel):
     updated_at: str
 
 
-# ----------------------------
-# Logique de génération
-# ----------------------------
-def _extract_video_url(output: Any) -> Optional[str]:
-    """Normalise la sortie Replicate pour retrouver l'URL vidéo."""
-    if isinstance(output, str):
-        return output
-    if isinstance(output, list) and output:
-        return _extract_video_url(output[0])
-    if isinstance(output, dict):
-        for key in ("video", "output", "url", "mp4"):
-            if key in output:
-                url = _extract_video_url(output[key])
-                if url:
-                    return url
-    if hasattr(output, "url"):
-        return output.url
-    return None
-
-
 def run_generation(job_id: str) -> None:
-    """Fonction exécutée en arrière-plan par FastAPI."""
     job = get_job(job_id)
     if not job:
         return
 
-    if not REPLICATE_API_TOKEN:
-        update_job(
-            job_id,
-            status=JobStatus.FAILED,
-            error="REPLICATE_API_TOKEN manquant dans .env",
-        )
+    if not AGNES_API_KEY:
+        update_job(job_id, status=JobStatus.FAILED, error="AGNES_API_KEY manquant.")
         return
 
     update_job(job_id, status=JobStatus.RUNNING)
 
     try:
-        client = replicate.Client(api_token=REPLICATE_API_TOKEN)
-        inputs = dict(job.params)
-        inputs["prompt"] = job.prompt
+        with httpx.Client() as client:
+            headers = {
+                "Authorization": f"Bearer {AGNES_API_KEY}",
+                "Content-Type": "application/json",
+            }
 
-        output = client.run(job.model, input=inputs)
-        video_url = _extract_video_url(output)
+            payload = {
+                "model": job.model,
+                "prompt": job.prompt,
+                "seconds": job.params.get("seconds", "5"),
+                "size": "720P",
+                "aspect_ratio": job.params.get("aspect_ratio", "16:9"),
+            }
 
-        if not video_url:
-            update_job(
-                job_id,
-                status=JobStatus.FAILED,
-                error=f"Sortie inattendue : {output}",
+            image_urls = job.params.get("image_urls") or []
+            if image_urls:
+                payload["mode"] = "reference"
+                payload["images"] = image_urls
+            else:
+                payload["mode"] = "text"
+
+            response = client.post(
+                f"{AGNES_BASE_URL}/videos",
+                headers=headers,
+                json=payload,
+                timeout=30.0,
             )
-        else:
-            update_job(
-                job_id,
-                status=JobStatus.SUCCEEDED,
-                video_url=video_url,
-            )
+            response.raise_for_status()
+            data = response.json()
+
+            video_id = data.get("video_id") or data.get("id")
+            if not video_id:
+                update_job(job_id, status=JobStatus.FAILED, error=f"Pas de video_id : {data}")
+                return
+
+            import time
+            max_attempts = 150
+            for attempt in range(max_attempts):
+                time.sleep(2)
+                status_url = f"https://apihub.agnes-ai.com/agnesapi?video_id={video_id}&model_name={job.model}"
+                status_response = client.get(status_url, headers=headers, timeout=30.0)
+                status_response.raise_for_status()
+                status_data = status_response.json()
+
+                current_status = status_data.get("status")
+                if current_status == "completed":
+                    video_url = status_data.get("url")
+                    if video_url:
+                        update_job(job_id, status=JobStatus.SUCCEEDED, video_url=video_url)
+                    else:
+                        update_job(job_id, status=JobStatus.FAILED, error="URL video non trouvee.")
+                    return
+                elif current_status == "failed":
+                    error_msg = status_data.get("error", "Erreur inconnue.")
+                    update_job(job_id, status=JobStatus.FAILED, error=error_msg)
+                    return
+
+            update_job(job_id, status=JobStatus.FAILED, error="Delai depasse.")
+
     except Exception as e:
         update_job(job_id, status=JobStatus.FAILED, error=str(e))
 
 
-# ----------------------------
-# Routes
-# ----------------------------
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return FileResponse(STATIC_DIR / "index.html")
@@ -126,24 +136,34 @@ async def index():
 async def health():
     return {
         "status": "ok",
-        "replicate_configured": bool(REPLICATE_API_TOKEN),
+        "replicate_configured": bool(AGNES_API_KEY),
         "default_model": DEFAULT_MODEL,
     }
 
 
+@app.post("/api/upload")
+async def upload_images(files: List[UploadFile] = File(...)):
+    urls = []
+    for file in files[:5]:
+        ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+        unique_name = f"{uuid.uuid4()}.{ext}"
+        file_path = UPLOAD_DIR / unique_name
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        if APP_BASE_URL:
+            urls.append(f"{APP_BASE_URL}/uploads/{unique_name}")
+        else:
+            urls.append(f"/uploads/{unique_name}")
+    return {"urls": urls}
+
+
 @app.post("/api/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
-    if not REPLICATE_API_TOKEN:
-        raise HTTPException(
-            status_code=500,
-            detail="REPLICATE_API_TOKEN non configuré côté serveur.",
-        )
-
+    if not AGNES_API_KEY:
+        raise HTTPException(status_code=500, detail="AGNES_API_KEY non configure.")
     model = req.model or DEFAULT_MODEL
     job = create_job(prompt=req.prompt, model=model, params=req.params)
-
     background_tasks.add_task(run_generation, job.id)
-
     return GenerateResponse(job_id=job.id, status=job.status.value)
 
 
@@ -161,9 +181,6 @@ async def list_jobs():
     return [JobResponse(**j.to_dict()) for j in JOBS.values()]
 
 
-# ----------------------------
-# Lancement direct (dev)
-# ----------------------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
