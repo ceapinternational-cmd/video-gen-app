@@ -25,7 +25,7 @@ STATIC_DIR = BASE_DIR / "static"
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="Generateur de videos IA - Agnes", version="1.2.0")
+app = FastAPI(title="Generateur de videos IA - Agnes", version="1.3.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
@@ -115,29 +115,39 @@ def run_generation(job_id: str) -> None:
                             )
                             return
 
-                    if response.status_code == 503:
+                    if response.status_code in (429, 503):
+                        err_code = ""
                         try:
                             err_data = response.json()
-                            code = err_data.get("code", "")
-                            if code == "video_queue_full":
-                                wait = base_delay * (attempt + 1)
-                                last_error = "File d'attente Agnes pleine"
-                                update_job(
-                                    job_id,
-                                    status=JobStatus.RUNNING,
-                                    error=f"File d'attente pleine, nouvelle tentative dans {wait}s (essai {attempt+1}/{max_retries})",
-                                )
-                                time.sleep(wait)
-                                continue
+                            err_code = err_data.get("code", "")
                         except Exception:
                             pass
-                        wait = base_delay * (attempt + 1)
-                        last_error = "503 Service Unavailable"
-                        update_job(
-                            job_id,
-                            status=JobStatus.RUNNING,
-                            error=f"Serveur Agnes occupe, nouvelle tentative dans {wait}s (essai {attempt+1}/{max_retries})",
-                        )
+
+                        if response.status_code == 429:
+                            wait = 60
+                            last_error = "Limite de debit atteinte (429)"
+                            update_job(
+                                job_id,
+                                status=JobStatus.RUNNING,
+                                error=f"Limite Agnes atteinte. Nouvelle tentative dans 60s (essai {attempt+1}/{max_retries})",
+                            )
+                        elif err_code == "video_queue_full":
+                            wait = base_delay * (attempt + 1)
+                            last_error = "File d'attente Agnes pleine"
+                            update_job(
+                                job_id,
+                                status=JobStatus.RUNNING,
+                                error=f"File d'attente pleine, nouvelle tentative dans {wait}s (essai {attempt+1}/{max_retries})",
+                            )
+                        else:
+                            wait = base_delay * (attempt + 1)
+                            last_error = "503 Service Unavailable"
+                            update_job(
+                                job_id,
+                                status=JobStatus.RUNNING,
+                                error=f"Serveur Agnes occupe, nouvelle tentative dans {wait}s (essai {attempt+1}/{max_retries})",
+                            )
+
                         time.sleep(wait)
                         continue
 
