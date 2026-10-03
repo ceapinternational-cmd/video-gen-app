@@ -19,13 +19,14 @@ AGNES_API_KEY = os.getenv("AGNES_API_KEY")
 AGNES_BASE_URL = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "agnes-video-2.5-flash")
 APP_BASE_URL = os.getenv("APP_BASE_URL", "").rstrip("/")
+DEFAULT_SECONDS = os.getenv("DEFAULT_SECONDS", "10")
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="Generateur de videos IA - Agnes", version="1.3.0")
+app = FastAPI(title="Generateur de videos IA - Agnes", version="1.4.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
@@ -75,7 +76,7 @@ def run_generation(job_id: str) -> None:
             payload = {
                 "model": job.model,
                 "prompt": job.prompt,
-                "seconds": job.params.get("seconds", "5"),
+                "seconds": job.params.get("seconds", DEFAULT_SECONDS),
                 "size": "720P",
                 "aspect_ratio": job.params.get("aspect_ratio", "16:9"),
             }
@@ -87,8 +88,9 @@ def run_generation(job_id: str) -> None:
             else:
                 payload["mode"] = "text"
 
-            max_retries = 8
-            base_delay = 10
+            max_retries = 15
+            base_delay = 20
+            max_delay = 120
             video_id = None
             last_error = ""
 
@@ -129,10 +131,10 @@ def run_generation(job_id: str) -> None:
                             update_job(
                                 job_id,
                                 status=JobStatus.RUNNING,
-                                error=f"Limite Agnes atteinte. Nouvelle tentative dans 60s (essai {attempt+1}/{max_retries})",
+                                error=f"Limite Agnes atteinte. Nouvelle tentative dans {wait}s (essai {attempt+1}/{max_retries})",
                             )
                         elif err_code == "video_queue_full":
-                            wait = base_delay * (attempt + 1)
+                            wait = min(base_delay * (attempt + 1), max_delay)
                             last_error = "File d'attente Agnes pleine"
                             update_job(
                                 job_id,
@@ -140,7 +142,7 @@ def run_generation(job_id: str) -> None:
                                 error=f"File d'attente pleine, nouvelle tentative dans {wait}s (essai {attempt+1}/{max_retries})",
                             )
                         else:
-                            wait = base_delay * (attempt + 1)
+                            wait = min(base_delay * (attempt + 1), max_delay)
                             last_error = "503 Service Unavailable"
                             update_job(
                                 job_id,
@@ -156,7 +158,7 @@ def run_generation(job_id: str) -> None:
                 except (httpx.RequestError, httpx.TimeoutException) as e:
                     last_error = str(e)
                     if attempt < max_retries - 1:
-                        wait = base_delay * (attempt + 1)
+                        wait = min(base_delay * (attempt + 1), max_delay)
                         update_job(
                             job_id,
                             status=JobStatus.RUNNING,
@@ -171,13 +173,13 @@ def run_generation(job_id: str) -> None:
                 update_job(
                     job_id,
                     status=JobStatus.FAILED,
-                    error=f"Impossible de creer la video apres {max_retries} essais. Derniere erreur : {last_error}",
+                    error=f"Impossible de creer la video apres {max_retries} essais (~25 min). Agnes est probablement sature en permanence. Reessayez plus tard ou contactez le support Agnes. Derniere erreur : {last_error}",
                 )
                 return
 
-            max_attempts = 150
+            max_attempts = 200
             for attempt in range(max_attempts):
-                time.sleep(2)
+                time.sleep(3)
                 status_url = f"https://apihub.agnes-ai.com/agnesapi?video_id={video_id}&model_name={job.model}"
 
                 try:
@@ -223,6 +225,7 @@ async def health():
         "status": "ok",
         "replicate_configured": bool(AGNES_API_KEY),
         "default_model": DEFAULT_MODEL,
+        "default_seconds": DEFAULT_SECONDS,
     }
 
 
