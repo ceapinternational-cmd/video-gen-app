@@ -11,7 +11,7 @@ const imageInput = document.getElementById("imageInput");
 const imagePreview = document.getElementById("imagePreview");
 
 const POLL_INTERVAL = 3000;
-const POLL_TIMEOUT = 10 * 60 * 1000;
+const POLL_TIMEOUT = 40 * 60 * 1000;
 
 // ---- Aperçu local des images sélectionnées ----
 imageInput.addEventListener("change", () => {
