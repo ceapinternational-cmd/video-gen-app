@@ -17,9 +17,17 @@
     <section class="form-card">
       <label for="provider">Fournisseur</label>
       <select id="provider">
-        <option value="replicate">⚡ Replicate (rapide, image supportée)</option>
+        <option value="replicate">⚡ Replicate (rapide)</option>
         <option value="agnes">🆓 Agnes AI (gratuit, lent)</option>
       </select>
+
+      <div id="replicateModelBox">
+        <label for="replicateModel">Modèle Replicate</label>
+        <select id="replicateModel">
+          <option value="kwaivgi/kling-v2.1">🎨 Kling v2.1 — image supportée (~0,30 €/vidéo)</option>
+          <option value="minimax/video-01">💰 Minimax — économique (~0,05 €/vidéo, image ignorée)</option>
+        </select>
+      </div>
 
       <label for="prompt">Prompt</label>
       <textarea
@@ -32,7 +40,8 @@
       <input type="file" id="imageInput" accept="image/*" />
       <div id="imagePreview" class="image-preview"></div>
       <p class="hint">
-        <strong>Replicate :</strong> l'image guide la vidéo automatiquement.<br>
+        <strong>Replicate (Kling) :</strong> l'image guide la vidéo automatiquement.<br>
+        <strong>Replicate (Minimax) :</strong> l'image est <em>ignorée</em>.<br>
         <strong>Agnes :</strong> ajoute <code>&lt;Picture 1&gt;</code> dans ton prompt pour la référencer.
       </p>
 
