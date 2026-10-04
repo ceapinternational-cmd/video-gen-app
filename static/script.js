@@ -1,4 +1,6 @@
 const providerEl = document.getElementById("provider");
+const replicateModelEl = document.getElementById("replicateModel");
+const replicateModelBox = document.getElementById("replicateModelBox");
 const promptEl = document.getElementById("prompt");
 const generateBtn = document.getElementById("generateBtn");
 const statusEl = document.getElementById("status");
@@ -11,6 +13,15 @@ const imagePreview = document.getElementById("imagePreview");
 
 const POLL_INTERVAL = 5000;
 const POLL_TIMEOUT = 40 * 60 * 1000;
+
+// Afficher/cacher le menu du modèle Replicate
+providerEl.addEventListener("change", () => {
+  if (providerEl.value === "replicate") {
+    replicateModelBox.style.display = "block";
+  } else {
+    replicateModelBox.style.display = "none";
+  }
+});
 
 // Aperçu image
 imageInput.addEventListener("change", () => {
@@ -48,6 +59,7 @@ imageInput.addEventListener("change", () => {
 generateBtn.addEventListener("click", async () => {
   const prompt = promptEl.value.trim();
   const provider = providerEl.value;
+  const model = provider === "replicate" ? replicateModelEl.value : null;
 
   if (!prompt) {
     setStatus("✏️ Écris un prompt avant de générer.", "ko");
@@ -82,12 +94,14 @@ generateBtn.addEventListener("click", async () => {
   const body = {
     prompt,
     provider,
+    model,
     params: {
       image_urls: uploadedImageUrls,
     },
   };
 
-  setStatus(`<span class="spinner"></span>Envoi à ${provider === "replicate" ? "Replicate" : "Agnes"}...`, "info");
+  const providerName = provider === "replicate" ? "Replicate" : "Agnes";
+  setStatus(`<span class="spinner"></span>Envoi à ${providerName}...`, "info");
 
   try {
     const r = await fetch("/api/generate", {
