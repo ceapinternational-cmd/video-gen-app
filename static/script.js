@@ -1,6 +1,5 @@
+const providerEl = document.getElementById("provider");
 const promptEl = document.getElementById("prompt");
-const modelEl = document.getElementById("model");
-const paramsEl = document.getElementById("params");
 const generateBtn = document.getElementById("generateBtn");
 const statusEl = document.getElementById("status");
 const resultEl = document.getElementById("result");
@@ -10,30 +9,33 @@ const healthEl = document.getElementById("health");
 const imageInput = document.getElementById("imageInput");
 const imagePreview = document.getElementById("imagePreview");
 
-const POLL_INTERVAL = 3000;
+const POLL_INTERVAL = 5000;
 const POLL_TIMEOUT = 40 * 60 * 1000;
 
-// ---- Aperçu local des images sélectionnées ----
+// Aperçu image
 imageInput.addEventListener("change", () => {
   imagePreview.innerHTML = "";
-  const files = Array.from(imageInput.files).slice(0, 5);
-  files.forEach((file) => {
+  const file = imageInput.files[0];
+  if (file) {
     const img = document.createElement("img");
     img.src = URL.createObjectURL(file);
     imagePreview.appendChild(img);
-  });
+  }
 });
 
-// ---- Health check ----
+// Health check
 (async () => {
   try {
     const r = await fetch("/api/health");
     const data = await r.json();
-    if (data.replicate_configured) {
-      healthEl.textContent = `✅ API prête — modèle par défaut : ${data.default_model}`;
+    const parts = [];
+    if (data.replicate_configured) parts.push("Replicate ✅");
+    if (data.agnes_configured) parts.push("Agnes ✅");
+    if (parts.length > 0) {
+      healthEl.textContent = "API prêtes — " + parts.join(" · ");
       healthEl.className = "health ok";
     } else {
-      healthEl.textContent = "⚠️ Clé API Agnes non configurée côté serveur.";
+      healthEl.textContent = "⚠️ Aucun fournisseur configuré.";
       healthEl.className = "health ko";
     }
   } catch {
@@ -42,46 +44,32 @@ imageInput.addEventListener("change", () => {
   }
 })();
 
-// ---- Génération ----
+// Générer
 generateBtn.addEventListener("click", async () => {
   const prompt = promptEl.value.trim();
+  const provider = providerEl.value;
+
   if (!prompt) {
     setStatus("✏️ Écris un prompt avant de générer.", "ko");
     return;
   }
 
-  let params = {};
-  const rawParams = paramsEl.value.trim();
-  if (rawParams) {
-    try {
-      params = JSON.parse(rawParams);
-    } catch {
-      setStatus("❌ JSON invalide dans les paramètres avancés.", "ko");
-      return;
-    }
-  }
-
   generateBtn.disabled = true;
   resultEl.classList.add("hidden");
 
-  // --- Upload des images si présentes ---
+  // Upload image si présente
   let uploadedImageUrls = [];
-  const files = imageInput.files;
-  if (files && files.length > 0) {
-    setStatus('<span class="spinner"></span>Envoi des images...', "info");
+  const file = imageInput.files[0];
+  if (file) {
+    setStatus('<span class="spinner"></span>Envoi de l\'image...', "info");
     try {
       const formData = new FormData();
-      for (let i = 0; i < Math.min(files.length, 5); i++) {
-        formData.append("files", files[i]);
-      }
+      formData.append("files", file);
       const uploadRes = await fetch("/api/upload", {
         method: "POST",
         body: formData,
       });
-      if (!uploadRes.ok) {
-        const err = await uploadRes.json().catch(() => ({}));
-        throw new Error(err.detail || "Erreur upload images");
-      }
+      if (!uploadRes.ok) throw new Error("Erreur upload image");
       const uploadData = await uploadRes.json();
       uploadedImageUrls = uploadData.urls;
     } catch (e) {
@@ -91,17 +79,15 @@ generateBtn.addEventListener("click", async () => {
     }
   }
 
-  // --- Préparation du body ---
   const body = {
     prompt,
-    model: modelEl.value.trim() || null,
+    provider,
     params: {
-      ...params,
       image_urls: uploadedImageUrls,
     },
   };
 
-  setStatus('<span class="spinner"></span>Envoi de la requête...', "info");
+  setStatus(`<span class="spinner"></span>Envoi à ${provider === "replicate" ? "Replicate" : "Agnes"}...`, "info");
 
   try {
     const r = await fetch("/api/generate", {
@@ -115,16 +101,16 @@ generateBtn.addEventListener("click", async () => {
       throw new Error(err.detail || `Erreur HTTP ${r.status}`);
     }
 
-    const { job_id } = await r.json();
-    await pollJob(job_id);
+    const data = await r.json();
+    await pollJob(data.job_id, provider);
   } catch (e) {
     setStatus(`❌ ${e.message}`, "ko");
     generateBtn.disabled = false;
   }
 });
 
-// ---- Polling ----
-async function pollJob(jobId) {
+// Polling
+async function pollJob(jobId, provider) {
   const start = Date.now();
 
   while (Date.now() - start < POLL_TIMEOUT) {
@@ -137,7 +123,11 @@ async function pollJob(jobId) {
         setStatus('<span class="spinner"></span>En file d\'attente...', "info");
       } else if (job.status === "running") {
         const secs = Math.round((Date.now() - start) / 1000);
-        setStatus(`<span class="spinner"></span>Génération en cours... (${secs}s)`, "info");
+        if (job.error) {
+          setStatus(`<span class="spinner"></span>${job.error}`, "info");
+        } else {
+          setStatus(`<span class="spinner"></span>Génération en cours... (${secs}s)`, "info");
+        }
       } else if (job.status === "succeeded") {
         setStatus("✅ Vidéo prête !", "ok");
         showVideo(job.video_url);
@@ -155,11 +145,10 @@ async function pollJob(jobId) {
     await new Promise((res) => setTimeout(res, POLL_INTERVAL));
   }
 
-  setStatus("⏱️ Délai dépassé.", "ko");
+  setStatus("⏱️ Délai dépassé. Le job tourne peut-être encore côté serveur.", "ko");
   generateBtn.disabled = false;
 }
 
-// ---- Affichage ----
 function showVideo(url) {
   videoEl.src = url;
   downloadLink.href = url;
