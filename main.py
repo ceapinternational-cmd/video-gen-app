@@ -26,7 +26,7 @@ AGNES_BASE_URL = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
 DEFAULT_MODEL_AGNES = os.getenv("DEFAULT_MODEL", "agnes-video-2.5-flash")
 
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-DEFAULT_MODEL_REPLICATE = os.getenv("REPLICATE_MODEL", "minimax/video-01")
+DEFAULT_MODEL_REPLICATE = os.getenv("REPLICATE_MODEL", "kwaivgi/kling-v2.1")
 
 DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "replicate").lower()
 APP_BASE_URL = os.getenv("APP_BASE_URL", "").rstrip("/")
@@ -36,7 +36,7 @@ STATIC_DIR = BASE_DIR / "static"
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="Generateur de videos IA - Dual", version="2.0.0")
+app = FastAPI(title="Generateur de videos IA - Dual", version="2.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
@@ -76,12 +76,34 @@ def run_replicate(job_id: str, job) -> None:
 
     try:
         client = replicate.Client(api_token=REPLICATE_API_TOKEN)
-        inputs = dict(job.params)
-        inputs["prompt"] = job.prompt
 
-        image_urls = inputs.pop("image_urls", None)
+        # Construction propre des parametres selon le modele Replicate
+        inputs = {"prompt": job.prompt}
+
+        # Image de depart (start_image pour Kling, image pour Minimax)
+        image_urls = job.params.get("image_urls") or []
         if image_urls:
-            inputs["image"] = image_urls[0]
+            model_name = job.model.lower()
+            if "minimax" in model_name:
+                inputs["first_frame_image"] = image_urls[0]
+            elif "luma" in model_name:
+                inputs["image"] = image_urls[0]
+            else:
+                # Kling et autres modeles recents
+                inputs["start_image"] = image_urls[0]
+
+        # Duree (en secondes)
+        if "seconds" in job.params:
+            try:
+                inputs["duration"] = int(job.params["seconds"])
+            except (ValueError, TypeError):
+                inputs["duration"] = 5
+        else:
+            inputs["duration"] = 5
+
+        # Format d'image
+        if "aspect_ratio" in job.params:
+            inputs["aspect_ratio"] = job.params["aspect_ratio"]
 
         output = client.run(job.model, input=inputs)
 
@@ -97,6 +119,7 @@ def run_replicate(job_id: str, job) -> None:
             update_job(job_id, status=JobStatus.SUCCEEDED, video_url=video_url, error=None)
         else:
             update_job(job_id, status=JobStatus.FAILED, error=f"Sortie inattendue : {output}")
+
     except Exception as e:
         update_job(job_id, status=JobStatus.FAILED, error=str(e))
 
