@@ -17,8 +17,8 @@
     <section class="form-card">
       <label for="provider">Fournisseur</label>
       <select id="provider">
-        <option value="replicate">⚡ Replicate (rapide, payant ~0,05€)</option>
-        <option value="agnes">🆓 Agnes AI (gratuit, 15-25 min)</option>
+        <option value="replicate">⚡ Replicate (rapide, image supportée)</option>
+        <option value="agnes">🆓 Agnes AI (gratuit, lent)</option>
       </select>
 
       <label for="prompt">Prompt</label>
@@ -31,7 +31,10 @@
       <label for="imageInput">📎 Image de référence (optionnel)</label>
       <input type="file" id="imageInput" accept="image/*" />
       <div id="imagePreview" class="image-preview"></div>
-      <p class="hint">Pour Agnes : utilise <code>&lt;Picture 1&gt;</code> dans ton prompt.</p>
+      <p class="hint">
+        <strong>Replicate :</strong> l'image guide la vidéo automatiquement.<br>
+        <strong>Agnes :</strong> ajoute <code>&lt;Picture 1&gt;</code> dans ton prompt pour la référencer.
+      </p>
 
       <button id="generateBtn">🚀 Générer la vidéo</button>
       <div id="status" class="status"></div>
