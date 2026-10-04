@@ -42,7 +42,7 @@ label {
   font-size: 0.9rem;
 }
 
-textarea, input[type="text"] {
+textarea, input[type="text"], select {
   width: 100%;
   padding: 0.75rem;
   background: #0f1117;
@@ -51,16 +51,24 @@ textarea, input[type="text"] {
   color: #e8eaed;
   font-family: inherit;
   font-size: 0.95rem;
-  resize: vertical;
   margin-bottom: 1rem;
 }
 
-textarea:focus, input:focus {
+select {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%239aa0a6' d='M6 8L2 4h8z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  padding-right: 2.5rem;
+}
+
+textarea:focus, input:focus, select:focus {
   outline: none;
   border-color: #6366f1;
 }
 
-/* NOUVEAU : champ file */
 input[type="file"] {
   display: block;
   width: 100%;
@@ -85,7 +93,6 @@ input[type="file"]::file-selector-button {
   font-size: 0.85rem;
 }
 
-/* NOUVEAU : zone d'aperçu des vignettes */
 .image-preview {
   display: flex;
   flex-wrap: wrap;
@@ -101,7 +108,6 @@ input[type="file"]::file-selector-button {
   border: 1px solid #2a2d34;
 }
 
-/* NOUVEAU : texte d'aide */
 .hint {
   font-size: 0.8rem;
   color: #9aa0a6;
@@ -117,17 +123,6 @@ input[type="file"]::file-selector-button {
   font-family: monospace;
   color: #a78bfa;
   font-size: 0.8rem;
-}
-
-details {
-  margin-bottom: 1rem;
-}
-
-summary {
-  cursor: pointer;
-  color: #9aa0a6;
-  font-size: 0.9rem;
-  margin-bottom: 0.75rem;
 }
 
 button {
